@@ -9,7 +9,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 class DatasetLaSOT(Dataset):
-    def __init__(self, mode, dir_data, size_template, size_search, size_out, max_frame_sep, neg_prob=0.5, extra_context_template=0.5, min_extra_context_search=0.75, max_extra_context_search=1.0, max_shift=0):
+    def __init__(self, mode, dir_data, size_template, size_search, size_out, max_frame_sep, 
+                 neg_prob=0.5, extra_context_template=0.5, min_extra_context_search=0.75, 
+                 max_extra_context_search=1.0, max_shift=0, reg_full=True, img_augment=False):
         self.mode = mode
         self.dir_data = dir_data
         self.size_template = size_template
@@ -21,12 +23,17 @@ class DatasetLaSOT(Dataset):
         self.min_extra_context_search = min_extra_context_search
         self.max_extra_context_search = max_extra_context_search
         self.max_shift = max_shift
+        self.reg_full = reg_full
+        self.img_augment = img_augment
         # mean/std for ImageNet‐pretrained backbones
         # Adapt these variables to the backbone used
         self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)[None,:,None,None]
         self.std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)[None,:,None,None]
+        self.n_videos_train = 1000
 
-        if self.mode == "train":
+        random.seed(42)
+
+        if self.mode == "train" or self.mode == "val":
             file = os.path.join(dir_data, "training_set.txt")
         elif self.mode == "test":
             file = os.path.join(dir_data, "testing_set.txt")
@@ -35,7 +42,17 @@ class DatasetLaSOT(Dataset):
 
         # Get number of videos for the training set
         with open(file, 'r') as file:
-            self.video_names = [line.strip() for line in file]
+            video_names = [line.strip() for line in file]
+
+        shuffled = video_names[:]
+        random.shuffle(shuffled)
+
+        if self.mode == "train":
+            self.video_names = shuffled[:self.n_videos_train]
+        elif self.mode == "val":
+            self.video_names = shuffled[self.n_videos_train:]
+        else:
+            self.video_names = shuffled
 
         # Get the category names
         self.categories = sorted([name for name in os.listdir(self.dir_data)
@@ -297,15 +314,30 @@ class DatasetLaSOT(Dataset):
         ty = np.clip(1 - dy, 0, 1)
         heatmap = tx * ty  # (H,W)
         # Force max to 1
-        heatmap /= heatmap.max()
+        heatmap /= (heatmap.max()+1e-8)
 
         # 4) build (w,h) regression map
         mask = (heatmap > 0).astype(np.float32)      # (H,W)
-        reg_wh = np.zeros((self.size_out, self.size_out, 2), dtype=np.float32)
-        reg_wh[..., 0] = w/self.size_search * mask  # normalized width
-        reg_wh[..., 1] = h/self.size_search * mask  # normalized height
+        
+        # 4) width/height normalized
+        w_norm = (w  / self.size_search) * mask
+        h_norm = (h  / self.size_search) * mask
 
-        return heatmap, reg_wh
+        if self.reg_full:
+            # 5) center offsets normalized
+            dx_off = ((xs - cx) / self.size_search) * mask    # can be in [-0.5,0.5]
+            dy_off = ((ys - cy) / self.size_search) * mask
+
+            # 6) stack regressors: [dx, dy, w, h]
+            reg = np.stack([dx_off, dy_off, w_norm, h_norm], axis=-1)  # (H,W,4)
+        
+        else:
+            reg = np.stack([w_norm, h_norm], axis=-1)
+        # reg_wh = np.zeros((self.size_out, self.size_out, 2), dtype=np.float32)
+        # reg_wh[..., 0] = w/self.size_search * mask  # normalized width
+        # reg_wh[..., 1] = h/self.size_search * mask  # normalized height
+
+        return heatmap, reg
 
     def get_positive_sample(self, video_name, idx_first_frame):
         # Obtain the second idx and image
@@ -323,6 +355,50 @@ class DatasetLaSOT(Dataset):
         return second_frame, bbox2
 
     #def get_output(self, search_img, search_bbox):
+
+    def photometric_augment(self, img,
+                        brightness_delta=32,
+                        contrast_range=(0.8,1.2),
+                        saturation_range=(0.8,1.2),
+                        hue_delta=10,
+                        p_jitter=0.5,
+                        p_blur=0.3,
+                        p_noise=0.3):
+        """
+        img: H×W×3 BGR uint8
+        Returns: same shape uint8
+        """
+        out = img.astype(np.float32)
+
+        # 1) brightness
+        if random.random() < p_jitter:
+            delta = random.uniform(-brightness_delta, brightness_delta)
+            out += delta
+
+        # 2) contrast
+        if random.random() < p_jitter:
+            alpha = random.uniform(*contrast_range)
+            out *= alpha
+
+        # 3) saturation & hue (convert to HSV in OpenCV)
+        if random.random() < p_jitter:
+            hsv = cv2.cvtColor(out.clip(0,255).astype(np.uint8), cv2.COLOR_BGR2HSV).astype(np.float32)
+            hsv[...,1] *= random.uniform(*saturation_range)  # sat
+            hsv[...,0] += random.uniform(-hue_delta, hue_delta)  # hue
+            out = cv2.cvtColor(hsv.clip(0,255).astype(np.uint8), cv2.COLOR_HSV2BGR).astype(np.float32)
+
+        # 4) Gaussian blur
+        if random.random() < p_blur:
+            k = random.choice([3,5])  # odd kernel size
+            out = cv2.GaussianBlur(out, (k,k), 0)
+
+        # 5) Additive Gaussian noise
+        if random.random() < p_noise:
+            sigma = random.uniform(5, 20)
+            noise = np.random.randn(*out.shape) * sigma
+            out += noise
+
+        return out.clip(0,255).astype(np.uint8)
         
             
     def __getitem__(self, idx):
@@ -384,17 +460,23 @@ class DatasetLaSOT(Dataset):
         if is_positive:
             heatmap, reg_wh = self.make_rect_tent(bbox2_x1y1wh)
         else:
-            reg_wh = np.zeros((self.size_out, self.size_out, 2), dtype=np.float32)
+            if self.reg_full:
+                reg_wh = np.zeros((self.size_out, self.size_out, 4), dtype=np.float32)
+            else:  
+                reg_wh = np.zeros((self.size_out, self.size_out, 2), dtype=np.float32)
             heatmap = np.zeros((self.size_out, self.size_out), dtype=np.float32)
 
         #output = {'template': self.to_tensor(template),
         #          'search': self.to_tensor(search),
         #          'heatmap': heatmap,
         #          'reg_wh': reg_wh}
+        if self.img_augment:
+            template = self.photometric_augment(template)
+            search = self.photometric_augment(search)
         return self.to_tensor(template), self.to_tensor(search), heatmap, reg_wh, video_name, video_search_name
         #return first_frame, second_frame, template, search, bbox1_x1y1wh, bbox2_x1y1wh, heatmap, reg_wh
 
 if __name__ == "__main__":
-    dataset = DatasetLaSOT("train", "/home/rafa/deep_learning/datasets/LaSOT", 127, 255, 25, 10, 0.45, 0.5, 0.75, 1.5, 32)
+    dataset = DatasetLaSOT("val", "/home/rafa/deep_learning/datasets/LaSOT", 127, 255, 25, 10, 0.45, 0.5, 0.75, 1.5, 32, False)
     output = dataset.__getitem__(10000)
-    dataset.visualize_video("robot-7")
+    dataset.visualize_video("umbrella-8")

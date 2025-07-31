@@ -4,14 +4,33 @@ import torch
 import numpy as np
 import matplotlib.patches as patches
 
-def draw_samples_training(template, search, heatmap, reg_wh, gt_heatmap, gt_reg_wh,
+def heatmap_center_of_mass(hm):
+    """
+    hm:  2D array of shape (H, W)
+    Returns:
+      (i_com, j_com): center of mass in heatmap‐grid coords (floats)
+    """
+    H, W = hm.shape
+    total = hm.sum()
+    if total == 0:
+        # no mass → fall back to the exact center of the grid
+        return ( (H-1)/2.0, (W-1)/2.0 )
+    # build index grids
+    i = np.arange(H)[:, None]   # shape (H,1)
+    j = np.arange(W)[None, :]   # shape (1,W)
+    # weighted sum of indices
+    i_com = (i * hm).sum() / total
+    j_com = (j * hm).sum() / total
+    return int(i_com), int(j_com)
+
+def draw_samples_training(template, search, heatmap, reg_bbox, gt_heatmap, gt_reg_bbox,
                  mean=(0.485,0.456,0.406), std=(0.229,0.224,0.225), thresh_cls = 0.5,
                  n_samples_plot=4, video_template_names="", video_search_names=""):
     """
     template: Tensor[B,3,127,127]
     search:   Tensor[B,3,255,255]
     heatmap:  Tensor[B,25,25]
-    reg_wh:   Tensor[B,25,25,2]  (w,h in pixels)
+    reg:   Tensor[B,25,25,2]  (w,h in pixels)
     mean,std: tuples for denormalization
     """
     B = template.shape[0]
@@ -37,17 +56,18 @@ def draw_samples_training(template, search, heatmap, reg_wh, gt_heatmap, gt_reg_
         
         # 3) heatmap & reg_wh
         hm = heatmap[i].detach().cpu().numpy()        # (25,25)
-        wh = reg_wh[i].detach().cpu().numpy()         # (25,25,2)
+        bbox = reg_bbox[i].detach().cpu().numpy()         # (25,25,4)
         gt_hm = gt_heatmap[i].detach().cpu().numpy()
-        gt_wh = gt_reg_wh[i].detach().cpu().numpy()
-        
-        # find best cell of the predicted
+        gt_bbox = gt_reg_bbox[i].detach().cpu().numpy()
+
+         # find best cell of the predicted
         if hm.max() > thresh_cls:
-            idx = np.unravel_index(hm.argmax(), hm.shape)
-            ci, cj = idx  # row, col in heatmap
+            #idx = np.unravel_index(hm.argmax(), hm.shape)
+            #ci, cj = idx  # row, col in heatmap
+            ci, cj = heatmap_center_of_mass(hm)
             cx = (cj + 0.5) * stride
             cy = (ci + 0.5) * stride
-            w, h = wh[ci, cj]
+            w, h = bbox[ci, cj]
             w *= search.shape[2]
             h *= search.shape[3]
             x0, y0 = cx - w/2, cy - h/2
@@ -59,11 +79,12 @@ def draw_samples_training(template, search, heatmap, reg_wh, gt_heatmap, gt_reg_
 
         # find best cell of the gt
         if gt_hm.max() > thresh_cls:
-            gt_idx = np.unravel_index(gt_hm.argmax(), gt_hm.shape)
-            gt_ci, gt_cj = gt_idx  # row, col in heatmap
+            # gt_idx = np.unravel_index(gt_hm.argmax(), gt_hm.shape)
+            # gt_ci, gt_cj = gt_idx  # row, col in heatmap
+            gt_ci, gt_cj = heatmap_center_of_mass(gt_hm)
             gt_cx = (gt_cj + 0.5) * stride
             gt_cy = (gt_ci + 0.5) * stride
-            gt_w, gt_h = gt_wh[gt_ci, gt_cj]
+            gt_w, gt_h = gt_bbox[gt_ci, gt_cj]
             gt_w *= search.shape[2]
             gt_h *= search.shape[3]
             gt_x0, gt_y0 = gt_cx - gt_w/2, gt_cy - gt_h/2
@@ -72,6 +93,46 @@ def draw_samples_training(template, search, heatmap, reg_wh, gt_heatmap, gt_reg_
             gt_y0 = 0
             gt_w = 0
             gt_h = 0
+        
+        # find best cell of the predicted
+        # if hm.max() > thresh_cls:
+        #     #idx = np.unravel_index(hm.argmax(), hm.shape)
+        #     #ci, cj = idx  # row, col in heatmap
+        #     ci, cj = heatmap_center_of_mass(hm)
+        #     dx_off, dy_off, w, h = bbox[ci, cj]
+        #     print("Offset pred: ", dx_off, dy_off, w, h)
+        #     cj = (cj + 0.5) * stride
+        #     ci = (ci + 0.5) * stride
+        #     w *= search.shape[2]
+        #     h *= search.shape[3]
+        #     cx = dx_off*search.shape[2] + cj
+        #     cy = dy_off*search.shape[3] + ci
+        #     x0, y0 = cx - w/2, cy - h/2
+        # else:
+        #     x0 = 0
+        #     y0 = 0
+        #     w = 0
+        #     h = 0
+
+        # # find best cell of the gt
+        # if gt_hm.max() > thresh_cls:
+        #     #gt_idx = np.unravel_index(gt_hm.argmax(), gt_hm.shape)
+        #     #gt_ci, gt_cj = gt_idx  # row, col in heatmap
+        #     gt_ci, gt_cj = heatmap_center_of_mass(gt_hm)
+        #     gt_dx_off, gt_dy_off, gt_w, gt_h = gt_bbox[gt_ci, gt_cj]
+        #     print("Offset actual: ", gt_dx_off, gt_dy_off, gt_w, gt_h)
+        #     gt_cj = (gt_cj + 0.5) * stride
+        #     gt_ci = (gt_ci + 0.5) * stride
+        #     gt_w *= search.shape[2]
+        #     gt_h *= search.shape[3]
+        #     gt_cx = gt_dx_off*search.shape[2] + gt_cj
+        #     gt_cy = gt_dy_off*search.shape[3] + gt_ci
+        #     gt_x0, gt_y0 = gt_cx - gt_w/2, gt_cy - gt_h/2
+        # else:
+        #     gt_x0 = 0
+        #     gt_y0 = 0
+        #     gt_w = 0
+        #     gt_h = 0
         
         # Plot template
         ax = axes[row,0] if n>1 else axes[0]

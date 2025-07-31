@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-def compute_loss(pred_heat, pred_wh, gt_heat, gt_wh, alpha=0.25, gamma=2.0, weight=1.0):
+def compute_loss(pred_heat, pred_bbox, gt_heat, gt_bbox, alpha=0.25, gamma=2.0, weight=1.0):
     B, H, W = pred_heat.shape
 
     pred_sig = torch.sigmoid(pred_heat)
@@ -19,7 +19,7 @@ def compute_loss(pred_heat, pred_wh, gt_heat, gt_wh, alpha=0.25, gamma=2.0, weig
     cls_loss = cls_loss / num_pos
 
     reg_mask = (gt_heat > 0).unsqueeze(-1).float()
-    abs_diff = torch.abs(pred_wh - gt_wh)
+    abs_diff = torch.abs(pred_bbox - gt_bbox) # To consider all coordinates
     reg_loss = (abs_diff * reg_mask).sum() / num_pos
 
     total_loss = cls_loss + weight * reg_loss

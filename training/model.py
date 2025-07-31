@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchvision.models import resnet50
 
 class SiameseBackbone(nn.Module):
-    def __init__(self, pretrained=True, out_layers=('layer3','layer4')):
+    def __init__(self, pretrained=True):
         super().__init__()
         # Use ResNet‑50 up through layer4
         backbone = resnet50(pretrained=pretrained)
@@ -14,10 +14,7 @@ class SiameseBackbone(nn.Module):
         self.layer1 = backbone.layer1  # stride 4→4
         self.layer2 = backbone.layer2  # 4→8
         self.layer3 = backbone.layer3  # 8→16
-        self.layer4 = backbone.layer4  # 16→32
-
-        # we’ll take layer3 features (stride=16) as our base for attention+heads
-        self.out_layer = getattr(self, out_layers[-2])
+        #self.layer4 = backbone.layer4  # 16→32
 
     def forward(self, x):
         x = self.stem(x)
@@ -61,11 +58,16 @@ class CrossAttentionModule(nn.Module):
         return feat_tpl + self.out(out)  # residual
 
 class SiameseTracker(nn.Module):
-    def __init__(self, search_size, template_size, out_size):
+    def __init__(self, search_size, template_size, out_size, reg_full = True):
         super().__init__()
         # backbones
         self.backbone = SiameseBackbone()
         C = 1024  # resnet50 layer3 channels
+        self.reg_full = reg_full
+        if reg_full:
+            reg_dim = 4
+        else:
+            reg_dim = 2
 
         # cross‐attention: template→search
         self.cross_attn = CrossAttentionModule(dim=C, num_heads=8)
@@ -76,14 +78,18 @@ class SiameseTracker(nn.Module):
         # heads: classification and wh regression
         self.cls_head = nn.Sequential(
             nn.Conv2d(C, C, 3, padding=1),
+            nn.BatchNorm2d(C),
             nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
             nn.Conv2d(C, 1, 1)  # single‐channel heatmap
         )
-        self.wh_head = nn.Sequential(
+        self.reg_head = nn.Sequential(
             nn.Conv2d(C, C, 3, padding=1),
+            nn.BatchNorm2d(C),
             nn.ReLU(inplace=True),
-            nn.Conv2d(C, 2, 1),  # two‐channel (w,h)
-            nn.Softplus()  # To ensure it is >0  
+            nn.Dropout(0.3),
+            nn.Conv2d(C, reg_dim, 1),  # four‐channel (dx,dy,w,h) or two-channel (w,h)
+            #nn.Softplus()  # To ensure it is >0  
         )
 
         # output feature map size (H_out, W_out)
@@ -104,17 +110,31 @@ class SiameseTracker(nn.Module):
 
         # 4) predict
         cls = self.cls_head(f_s)        # (B, 1, Hout, Wout)
-        wh  = self.wh_head(f_s)         # (B, 2, Hout, Wout)
+        regs  = self.reg_head(f_s)         # (B, 4, Hout, Wout)
 
         # resize to exact out_size if needed
         cls = F.interpolate(cls, size=(self.out_size, self.out_size), mode='bilinear', align_corners=False)
-        wh  = F.interpolate(wh,  size=(self.out_size, self.out_size), mode='bilinear', align_corners=False)
+
+        if self.reg_full:
+            # --- split off offsets vs sizes ---
+            # regs channels: [0]=dx, [1]=dy, [2]=w, [3]=h
+            dxdy, wh = regs.split([2, 2], dim=1)
+            wh = F.softplus(wh)             # enforce w,h ≥ 0
+
+            # recombine
+            regs = torch.cat([dxdy, wh], dim=1)  # (B,4,Hout,Wout)
+
+        else:
+            regs = F.softplus(regs)
+
+        # resize to exact out_size if needed    
+        regs  = F.interpolate(regs,  size=(self.out_size, self.out_size), mode='bilinear', align_corners=False)
 
         # squeeze channel dims
         cls = cls.squeeze(1)            # (B, Hout, Wout)
-        wh  = wh.permute(0,2,3,1)       # (B, Hout, Wout, 2)
+        regs  = regs.permute(0,2,3,1)       # (B, Hout, Wout, 4)
 
-        return cls, wh
+        return cls, regs
     
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -123,7 +143,7 @@ if __name__ == "__main__":
     out_size = 127
     template = torch.randn(32,3,template_size,template_size).to(device)
     search = torch.randn(32,3,out_size,out_size).to(device)
-    model = SiameseTracker(template_size, search_size, out_size).to(device)
+    model = SiameseTracker(template_size, search_size, out_size, True).to(device)
     cls, wh = model(template, search)
     print("Cls shape: ", cls.shape)
     print("wh shape: ", wh.shape)
