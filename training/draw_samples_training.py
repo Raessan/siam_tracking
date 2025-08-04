@@ -3,25 +3,8 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import matplotlib.patches as patches
+from utils import heatmap_center_of_mass
 
-def heatmap_center_of_mass(hm):
-    """
-    hm:  2D array of shape (H, W)
-    Returns:
-      (i_com, j_com): center of mass in heatmap‐grid coords (floats)
-    """
-    H, W = hm.shape
-    total = hm.sum()
-    if total == 0:
-        # no mass → fall back to the exact center of the grid
-        return ( (H-1)/2.0, (W-1)/2.0 )
-    # build index grids
-    i = np.arange(H)[:, None]   # shape (H,1)
-    j = np.arange(W)[None, :]   # shape (1,W)
-    # weighted sum of indices
-    i_com = (i * hm).sum() / total
-    j_com = (j * hm).sum() / total
-    return int(i_com), int(j_com)
 
 def draw_samples_training(template, search, heatmap, reg_bbox, gt_heatmap, gt_reg_bbox,
                  mean=(0.485,0.456,0.406), std=(0.229,0.224,0.225), thresh_cls = 0.5,

@@ -58,7 +58,7 @@ class CrossAttentionModule(nn.Module):
         return feat_tpl + self.out(out)  # residual
 
 class SiameseTracker(nn.Module):
-    def __init__(self, search_size, template_size, out_size, reg_full = True):
+    def __init__(self, template_size, search_size, out_size, reg_full = True):
         super().__init__()
         # backbones
         self.backbone = SiameseBackbone()
