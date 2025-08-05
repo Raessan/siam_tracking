@@ -142,7 +142,7 @@ class DatasetLaSOT(Dataset):
         
         # Frame 1: exemplar
         cx1, cy1, size1 = get_context_bbox(bbox1, self.extra_context_template)
-        exemplar, scale1, _ = crop_and_resize(frame1, cx1, cy1, size1, self.size_template, 0, 0)
+        exemplar, scale1 = crop_and_resize(frame1, cx1, cy1, size1, self.size_template, 0, 0)
     
         # bbox1 in exemplar coords: centered
         ex_bbox = [ (self.size_template - bbox1[2]*scale1)/2,
@@ -152,7 +152,7 @@ class DatasetLaSOT(Dataset):
     
         # Frame 2: search
         cx2, cy2, size2 = get_context_bbox(bbox2, extra_context_search)
-        search, scale2, _ = crop_and_resize(frame2, cx2, cy2, size2, self.size_search, shift_x, shift_y)
+        search, scale2 = crop_and_resize(frame2, cx2, cy2, size2, self.size_search, shift_x, shift_y)
     
         # bbox2 in search coords before augment: centered
         sr_bbox = [ (self.size_search - bbox2[2]*scale2)/2 - shift_x,

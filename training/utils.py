@@ -59,7 +59,6 @@ def crop_and_resize(frame,
         top, bottom, left, right,
         borderType=cv2.BORDER_REPLICATE
     )
-    print("padded shape: ", padded.shape)
     x1p, y1p = x1 + left,  y1 + top
     x2p, y2p = x2 + left,  y2 + top
     patch    = padded[int(y1p):int(y2p), int(x1p):int(x2p)]
@@ -67,7 +66,7 @@ def crop_and_resize(frame,
     # 6) resize & return
     patch_resized = cv2.resize(patch, (out_size, out_size))
     scale = out_size / size
-    return patch_resized, scale, [int(x1p), int(y1p), int(x2p), int(y2p)]
+    return patch_resized, scale
 
 def to_tensor(img, mean, std):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.

@@ -76,26 +76,33 @@ def main():
                 cv2.rectangle(display_frame, p1, curr, (0, 255, 0), 2)
             elif roi_defined:
                 cv2.rectangle(display_frame, p1, p2, (0, 255, 255), 2)
-                print("p1, p2: ", p1, p2)
-                if p2[0] > p1[0] or p2[1] > p1[1]: # Exchange to ensure that p1 is top left corner
-                    bbox_template = [p1[0], p1[1], p2[0]-p1[0], p2[1]-p1[1]]
-                elif p2[0] < p1[0] or p2[1] < p1[1]: # Exchange to ensure that p1 is top left corner
-                    bbox_template = [p2[0], p2[1], p1[0]-p2[0], p1[1]-p2[1]]
-                else:
+                if p1[0] == p2[0] or p1[1] == p2[1]:
                     print("You have to drag to draw a bounding box!")
                     roi_defined = False
                     p1 = None
                     p2 = None
                     continue
+                if p2[0] > p1[0]:
+                    x1 = p1[0]
+                    x2 = p2[0]
+                else:
+                    x1 = p2[0]
+                    x2 = p1[0]
+                if p2[1] > p1[1]:
+                    y1 = p1[1]
+                    y2 = p2[1]
+                else:
+                    y1 = p2[1]
+                    y2 = p1[1]
+                bbox_template = [x1, y1, x2-x1, y2-y1]
                 cx, cy, size = get_context_bbox(bbox_template, EXTRA_CONTENT)
-                template_img, scale_template, patch_template = crop_and_resize(frame, cx, cy, size, TEMPLATE_SIZE, 0, 0)
+                template_img, scale_template = crop_and_resize(frame, cx, cy, size, TEMPLATE_SIZE, 0, 0)
                 display_frame[0:TEMPLATE_SIZE, w_img:w_img+TEMPLATE_SIZE] = template_img.copy()
                 template_tensor = to_tensor(template_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
                 perform_inference = True
 
         else: # Get search image and start inference
-            search_img, scale_search, patch_search = crop_and_resize(frame, cx, cy, size, SEARCH_SIZE, 0, 0)
-            print("patch_search: ", patch_search)
+            search_img, scale_search = crop_and_resize(frame, cx, cy, size, SEARCH_SIZE, 0, 0)
             display_frame[TEMPLATE_SIZE:TEMPLATE_SIZE+SEARCH_SIZE, w_img:w_img+SEARCH_SIZE] = search_img.copy()
             search_tensor = to_tensor(search_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
             # Forward pass
@@ -124,23 +131,31 @@ def main():
                 x1, y1 = cx_search + w_search/2, cy_search + h_search/2
                 cv2.rectangle(display_frame, [int(x0)+w_img, int(y0)+TEMPLATE_SIZE], [int(x1)+w_img, int(y1)+TEMPLATE_SIZE], color=(0, 255, 0), thickness=2)
             
-                w_patch = patch_search[2] - patch_search[0]
-                h_patch = patch_search[3] - patch_search[1]
-                
-                scale_w = w_patch/SEARCH_SIZE
-                scale_h = h_patch/SEARCH_SIZE
-                w_bbox_img = w_search*scale_w
-                h_bbox_img = h_search*scale_h
-                print("w, h: ", w_img, h_img)
-                print("patch_search: ", patch_search)
-                cx_img = patch_search[2] + cx_search*scale_w
-                cy_img = patch_search[3] + cy_search*scale_h
-                cv2.rectangle(display_frame, [int((cx_img-w_bbox_img)/2), int((cy_img-h_bbox_img)/2)], [int((cx_img+w_bbox_img)/2), int((cy_img+h_bbox_img)/2)], color=(0, 255, 0), thickness=2)
+                patch_search = [cx-size/2.0, cy-size/2.0, cx+size/2.0, cy+size/2.0]
 
-                
-            # stride para ponerlo en la foto grande, actualizar cx, cy
+                scale = size/SEARCH_SIZE
+                scale = size/SEARCH_SIZE
+                x0_img = patch_search[0] + x0*scale
+                x1_img = patch_search[0] + x1*scale
+                y0_img = patch_search[1] + y0*scale
+                y1_img = patch_search[1] + y1*scale
+                #cv2.rectangle(display_frame, [int(patch_search[0]), int(patch_search[1])], [int(patch_search[2]), int(patch_search[3])], color=(0, 255, 0), thickness=2)
+                cv2.rectangle(display_frame, [int(x0_img), int(y0_img)], [int(x1_img), int(y1_img)], color=(0, 255, 0), thickness=2)
 
+                desired_cx = patch_search[0] + cx_search*scale
+                desired_cy = patch_search[1] + cy_search*scale
 
+                n_pixels = 5
+                if desired_cx > cx:
+                    cx = min(cx+n_pixels, desired_cx)
+                else:
+                    cx = max(cx-n_pixels, desired_cx)
+                if desired_cy > cy:
+                    cy = min(cy+n_pixels, desired_cy)
+                else:
+                    cy = max(cy-n_pixels, desired_cy)
+                # cx = patch_search[0] + cx_search*scale
+                # cy = patch_search[1] + cy_search*scale
 
         cv2.imshow("Stream", display_frame)
         if cv2.waitKey(1) & 0xFF == 27:  # ESC key to break
