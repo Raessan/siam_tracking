@@ -155,5 +155,5 @@ if __name__ == "__main__":
     print("Number parameters cross attn: ", n_params_cross_attn)
     n_params_cls = sum([p.numel() for p in model.cls_head.parameters()])
     print("Number parameters classification: ", n_params_cls)
-    n_params_reg = sum([p.numel() for p in model.wh_head.parameters()])
+    n_params_reg = sum([p.numel() for p in model.reg_head.parameters()])
     print("Number parameters regression: ", n_params_reg)

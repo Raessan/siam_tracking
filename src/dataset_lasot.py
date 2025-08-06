@@ -13,7 +13,7 @@ from src.utils import get_context_bbox, crop_and_resize, to_tensor
 class DatasetLaSOT(Dataset):
     def __init__(self, mode, dir_data, size_template, size_search, size_out, max_frame_sep, 
                  neg_prob=0.5, extra_context_template=0.5, min_extra_context_search=0.75, 
-                 max_extra_context_search=1.0, max_shift=0, reg_full=True, img_augment=False,
+                 max_extra_context_search=1.0, max_shift=0, reg_full=False, img_augment=False,
                  mean = np.array([0.485, 0.456, 0.406], dtype=np.float32),
                  std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)):
         self.mode = mode
@@ -409,6 +409,6 @@ class DatasetLaSOT(Dataset):
         #return first_frame, second_frame, template, search, bbox1_x1y1wh, bbox2_x1y1wh, heatmap, reg_wh
 
 if __name__ == "__main__":
-    dataset = DatasetLaSOT("val", "/home/rafa/deep_learning/datasets/LaSOT", 127, 255, 25, 10, 0.45, 0.5, 0.75, 1.5, 32, False)
+    dataset = DatasetLaSOT("val", "/home/rafa/deep_learning/datasets/LaSOT", 127, 255, 25, 10, 0.45, 0.5, 0.75, 1.5, 32, False, False)
     output = dataset.__getitem__(10000)
     dataset.visualize_video("umbrella-8")
