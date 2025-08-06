@@ -36,8 +36,8 @@ def main():
     SIZE_TEMPLATE = cfg.SIZE_TEMPLATE
     SIZE_OUT = cfg.SIZE_OUT
     REG_FULL = cfg.REG_FULL
-    IMG_MEAN = cfg.IMG_MEAN[None, :, None, None]
-    IMG_STD = cfg.IMG_STD[None, :, None, None]
+    IMG_MEAN = np.array(cfg.IMG_MEAN, dtype=np.float32)[None, :, None, None]
+    IMG_STD = np.array(cfg.IMG_STD, dtype=np.float32)[None, :, None, None]
     THRESHOLD_CLS = cfg.THRESHOLD_CLS
 
     PIXEL_OFFSET_PER_FRAME = cfg.PIXEL_OFFSET_PER_FRAME

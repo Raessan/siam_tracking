@@ -1,5 +1,3 @@
-import numpy as np
-
 # DATASET PARAMETERS
 DIR_DATA = '/home/rafa/deep_learning/datasets/LaSOT' # Root to the folder with the prepared data
 SIZE_TEMPLATE = 127
@@ -14,8 +12,8 @@ MAX_SHIFT = 32
 REG_FULL = False
 IMG_AUGMENT_TRAINING = True
 IMG_AUGMENT_VALID = False
-IMG_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-IMG_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+IMG_MEAN = [0.485, 0.456, 0.406]
+IMG_STD = [0.229, 0.224, 0.225]
     
 # MODEL PARAMETERS
 BATCH_SIZE = 32

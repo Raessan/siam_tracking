@@ -14,8 +14,8 @@ class DatasetLaSOT(Dataset):
     def __init__(self, mode, dir_data, size_template, size_search, size_out, max_frame_sep, 
                  neg_prob=0.5, extra_context_template=0.5, min_extra_context_search=0.75, 
                  max_extra_context_search=1.0, max_shift=0, reg_full=False, img_augment=False,
-                 mean = np.array([0.485, 0.456, 0.406], dtype=np.float32),
-                 std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)):
+                 mean = [0.485, 0.456, 0.406],
+                 std  = [0.229, 0.224, 0.225]):
         self.mode = mode
         self.dir_data = dir_data
         self.size_template = size_template
@@ -31,8 +31,8 @@ class DatasetLaSOT(Dataset):
         self.img_augment = img_augment
         # mean/std for ImageNet‐pretrained backbones
         # Adapt these variables to the backbone used
-        self.mean = mean[None, :, None, None]
-        self.std  = std[None, :, None, None]
+        self.mean = np.array(mean, dtype=np.float32)[None, :, None, None]
+        self.std  = np.array(std, dtype=np.float32)[None, :, None, None]
         self.n_videos_train = 1000
 
         random.seed(42)
