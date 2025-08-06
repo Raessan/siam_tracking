@@ -5,3 +5,5 @@ results/
 
 build/
 *.engine.*
+
+*.egg-info/

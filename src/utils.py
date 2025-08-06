@@ -69,6 +69,9 @@ def crop_and_resize(frame,
     return patch_resized, scale
 
 def to_tensor(img, mean, std):
+        """
+        Converts an img to a tensor ready to be used in NN
+        """
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.
         img = (img[None].transpose(0,3,1,2) - mean) / std
         return torch.from_numpy(img[0])

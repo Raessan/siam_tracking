@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import matplotlib.patches as patches
-from utils import heatmap_center_of_mass
+from src.utils import heatmap_center_of_mass
 
 
 def draw_samples_training(template, search, heatmap, reg_bbox, gt_heatmap, gt_reg_bbox,
