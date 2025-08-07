@@ -14,8 +14,7 @@ class DatasetLaSOT(Dataset):
     def __init__(self, mode, dir_data, size_template, size_search, size_out, max_frame_sep, 
                  neg_prob=0.5, extra_context_template=0.5, min_extra_context_search=0.75, 
                  max_extra_context_search=1.0, max_shift=0, reg_full=False, img_augment=False,
-                 mean = [0.485, 0.456, 0.406],
-                 std  = [0.229, 0.224, 0.225]):
+                 mean = [0.485, 0.456, 0.406], std  = [0.229, 0.224, 0.225]):
         self.mode = mode
         self.dir_data = dir_data
         self.size_template = size_template
@@ -398,15 +397,10 @@ class DatasetLaSOT(Dataset):
                 reg_wh = np.zeros((self.size_out, self.size_out, 2), dtype=np.float32)
             heatmap = np.zeros((self.size_out, self.size_out), dtype=np.float32)
 
-        #output = {'template': self.to_tensor(template),
-        #          'search': self.to_tensor(search),
-        #          'heatmap': heatmap,
-        #          'reg_wh': reg_wh}
         if self.img_augment:
             template = self.photometric_augment(template)
             search = self.photometric_augment(search)
         return to_tensor(template, self.mean, self.std), to_tensor(search, self.mean, self.std), heatmap, reg_wh, video_name, video_search_name
-        #return first_frame, second_frame, template, search, bbox1_x1y1wh, bbox2_x1y1wh, heatmap, reg_wh
 
 if __name__ == "__main__":
     dataset = DatasetLaSOT("val", "/home/rafa/deep_learning/datasets/LaSOT", 127, 255, 25, 10, 0.45, 0.5, 0.75, 1.5, 32, False, False)

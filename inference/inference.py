@@ -183,10 +183,10 @@ def main(source = 0):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python script.py <video_file_or_camera_index>")
+        print("Usage: python inference.py <video_file_or_camera_index>")
         print("Examples:")
-        print("  python script.py 0             # Open default webcam")
-        print("  python script.py video.avi     # Open video file")
+        print("  python inference.py 0             # Open default webcam")
+        print("  python inference.py video.avi     # Open video file")
         print("Since no argument is provided, falling back to camera usage...")
         source = 0
     else:

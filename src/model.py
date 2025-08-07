@@ -91,7 +91,6 @@ class SiameseTracker(nn.Module):
             nn.ReLU(inplace=True),
             nn.Dropout(0.3),
             nn.Conv2d(C, reg_dim, 1),  # four‐channel (dx,dy,w,h) or two-channel (w,h)
-            #nn.Softplus()  # To ensure it is >0  
         )
 
         # output feature map size (H_out, W_out)
