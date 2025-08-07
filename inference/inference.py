@@ -4,6 +4,7 @@ import numpy as np
 from src.model import SiameseTracker
 from src.utils import get_context_bbox, crop_and_resize, to_tensor, heatmap_center_of_mass
 import config.config as cfg
+import sys
 
 # Globals to track ROI
 drawing = False
@@ -28,7 +29,7 @@ def on_mouse(event, x, y, flags, param):
         drawing = False
         roi_defined = True
 
-def main():
+def main(source = 0):
 
     MODEL_PATH_INFERENCE = cfg.MODEL_PATH_INFERENCE
     EXTRA_CONTENT = cfg.EXTRA_CONTEXT_TEMPLATE
@@ -50,27 +51,43 @@ def main():
     model = SiameseTracker(SIZE_TEMPLATE, SIZE_SEARCH, SIZE_OUT, REG_FULL).to(device)
     model.load_state_dict(torch.load(MODEL_PATH_INFERENCE))
     model.eval()
-    init_frame = False
+    init_frame = True
 
     stride_search_out = SIZE_SEARCH / SIZE_OUT
 
-    cap = cv2.VideoCapture(0)
+    # Try to interpret the source as a number (camera index)
+    try:
+        source = int(source)
+        use_camera = True
+    except ValueError:
+        use_camera = False
+
+    cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        print("Cannot open camera")
+        print("Cannot open provided source")
         return
+    
+    if use_camera:
+        delay = 1
+    else:
+        # Get the original frames per second (FPS)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        delay = int(1000 / fps) if fps > 0 else 33  # fallback to ~30fps if unknown
+        print("Frames per second: ", fps)
 
     cv2.namedWindow("Stream")
     cv2.setMouseCallback("Stream", on_mouse)
 
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        if use_camera or (not use_camera and init_frame) or perform_inference:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
         h_img, w_img = frame.shape[:2]
-        if init_frame == False:
+        if init_frame == True:
             display_frame = np.zeros((max(h_img, SIZE_TEMPLATE+2*SIZE_SEARCH), w_img+SIZE_SEARCH, 3), dtype="uint8")
-            init_frame = True
+            init_frame = False
         display_frame[0:h_img, 0:w_img, :] = frame.copy()
         #display_frame = frame.copy()
         if perform_inference == False: # Get template image
@@ -158,11 +175,21 @@ def main():
                     cy = max(cy-PIXEL_OFFSET_PER_FRAME, desired_cy)
 
         cv2.imshow("Stream", display_frame)
-        if cv2.waitKey(1) & 0xFF == 27:  # ESC key to break
+        if cv2.waitKey(delay) & 0xFF == 27:  # ESC key to break
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("Usage: python script.py <video_file_or_camera_index>")
+        print("Examples:")
+        print("  python script.py 0             # Open default webcam")
+        print("  python script.py video.avi     # Open video file")
+        print("Since no argument is provided, falling back to camera usage...")
+        source = 0
+    else:
+        source = sys.argv[1]
+
+    main(source)

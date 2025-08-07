@@ -16,6 +16,8 @@ class SiameseBackbone(nn.Module):
         self.layer3 = backbone.layer3  # 8→16
         #self.layer4 = backbone.layer4  # 16→32
 
+        self.out_channels = list(self.layer3.children())[-1].conv3.out_channels  # = 1024
+
     def forward(self, x):
         x = self.stem(x)
         x = self.layer1(x)
@@ -62,7 +64,7 @@ class SiameseTracker(nn.Module):
         super().__init__()
         # backbones
         self.backbone = SiameseBackbone()
-        C = 1024  # resnet50 layer3 channels
+        C = self.backbone.out_channels  # resnet50 layer3 channels
         self.reg_full = reg_full
         if reg_full:
             reg_dim = 4

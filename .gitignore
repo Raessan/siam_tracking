@@ -7,3 +7,5 @@ build/
 *.engine.*
 
 *.egg-info/
+
+videos/
