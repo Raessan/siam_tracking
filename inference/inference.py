@@ -174,6 +174,12 @@ def main(source = 0):
                 else:
                     cy = max(cy-PIXEL_OFFSET_PER_FRAME, desired_cy)
 
+            # if heatmap.max() > 0.75:
+            #     template_img = cv2.resize(search_img, (SIZE_TEMPLATE, SIZE_TEMPLATE))
+            #     display_frame[0:SIZE_TEMPLATE, w_img:w_img+SIZE_TEMPLATE] = template_img.copy()
+            #     template_tensor = to_tensor(template_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
+
+
         cv2.imshow("Stream", display_frame)
         if cv2.waitKey(delay) & 0xFF == 27:  # ESC key to break
             break
