@@ -143,7 +143,7 @@ if __name__ == "__main__":
     search_size = 255
     out_size = 127
     template = torch.randn(32,3,template_size,template_size).to(device)
-    search = torch.randn(32,3,out_size,out_size).to(device)
+    search = torch.randn(32,3,search_size,search_size).to(device)
     model = SiameseTracker(template_size, search_size, out_size, True).to(device)
     cls, wh = model(template, search)
     print("Cls shape: ", cls.shape)
