@@ -46,15 +46,11 @@ class DinoBackbone(nn.Module):
     
 # ------------ Depthwise cross-correlation head (SiamFC style) ------------
 class DepthwiseXCorrHead(nn.Module):
-    """
-    Depthwise cross-correlation between template and search features,
-    then tiny conv heads for cls/reg.
-    """
-    def __init__(self, in_channels, mid_channels=256, reg_full=True):
+    def __init__(self, in_channels, out_size, mid_channels=256, reg_full=True):
         super().__init__()
         self.reg_full = reg_full
+        self.out_size = out_size
 
-        # optional small conv to reduce channels before xcorr
         self.pre = nn.Sequential(
             nn.Conv2d(in_channels, mid_channels, kernel_size=1),
             nn.BatchNorm2d(mid_channels),
@@ -62,11 +58,10 @@ class DepthwiseXCorrHead(nn.Module):
         )
         self.mid_channels = mid_channels
 
-        # classification & regression heads operate on xcorr output
         self.cls_head = nn.Sequential(
             nn.Conv2d(mid_channels, mid_channels, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, 1, 1)
+            nn.Conv2d(mid_channels, 1, 1)   # logits for heatmap
         )
         reg_dim = 4 if reg_full else 2
         self.reg_head = nn.Sequential(
@@ -77,94 +72,105 @@ class DepthwiseXCorrHead(nn.Module):
 
     @staticmethod
     def _depthwise_xcorr_single(template, search):
-        """
-        template: (C, Ht, Wt)
-        search:   (C, Hs, Ws)
-        returns:  (C, Hout, Wout) depthwise xcorr (per-channel)
-        Implementation uses grouped conv with batch collapsed trick.
-        """
         C, Ht, Wt = template.shape
         _, Hs, Ws = search.shape
-        # kernel shape expected: (C, 1, Ht, Wt)
         kernel = template.view(C, 1, Ht, Wt)
-        # input needs to be (1, C, Hs, Ws)
-        inp = search.unsqueeze(0)
-        # perform grouped conv with groups=C -> out (1, C, Hout, Wout)
-        out = F.conv2d(inp, kernel, groups=C)
+        inp = search.unsqueeze(0)  # (1, C, Hs, Ws)
+        out = F.conv2d(inp, kernel, groups=C)  # (1, C, Hout, Wout)
         return out.squeeze(0)  # (C, Hout, Wout)
 
     def forward(self, feat_t, feat_s):
-        """
-        feat_t: (B, C, Ht, Wt)
-        feat_s: (B, C, Hs, Ws)
-        returns: cls_map (B, Hout, Wout), regs (B, Hout, Wout, reg_dim)
-        """
-        # reduce channels
+        # feat_t: (B, C, Ht, Wt), feat_s: (B, C, Hs, Ws)
         t = self.pre(feat_t)  # (B, M, Ht, Wt)
         s = self.pre(feat_s)  # (B, M, Hs, Ws)
         B, M, Ht, Wt = t.shape
 
-        # compute depthwise xcorr per sample (could be accelerated vectorized)
+        # compute depthwise xcorr: per-sample loop (vectorize if needed)
         xcorr_outs = []
         for i in range(B):
-            # (M, Hout, Wout)
-            x = self._depthwise_xcorr_single(t[i], s[i])
+            x = self._depthwise_xcorr_single(t[i], s[i])  # (M, Hout, Wout)
             xcorr_outs.append(x)
         xcorr = torch.stack(xcorr_outs, dim=0)  # (B, M, Hout, Wout)
 
         cls = self.cls_head(xcorr)   # (B, 1, Hout, Wout)
         regs = self.reg_head(xcorr)  # (B, reg_dim, Hout, Wout)
 
-        cls = cls.squeeze(1)  # (B, Hout, Wout)
-        regs = regs.permute(0, 2, 3, 1)  # (B, Hout, Wout, reg_dim)
+        # upsample to requested out_size (25x25)
+        cls = F.interpolate(cls, size=(self.out_size, self.out_size),
+                            mode="bilinear", align_corners=False)  # (B,1,Out,Out)
+        regs = F.interpolate(regs, size=(self.out_size, self.out_size),
+                             mode="bilinear", align_corners=False)  # (B,reg_dim,Out,Out)
+
+        cls = cls.squeeze(1)  # (B, Out, Out)
+        regs = regs.permute(0, 2, 3, 1)  # (B, Out, Out, reg_dim)
+
+        # For positivity on widths/heights (if reg_full), apply softplus to the corresponding channels:
+        if self.reg_full:
+            # regs[..., 2:4] correspond to w,h - ensure they are positive
+            regs_wh = F.softplus(regs[..., 2:4])
+            regs = torch.cat([regs[..., :2], regs_wh], dim=-1)
+        else:
+            regs = F.softplus(regs)
+
         return cls, regs
     
 # ------------ Alternative simpler head: cosine correlation + conv ------------
 class CosineCorrHead(nn.Module):
-    """
-    Compute cosine similarity between template pooled feature and search features
-    (1x1 style) and then tiny conv heads. This is even cheaper but loses some
-    spatial-template shape info.
-    """
-    def __init__(self, in_channels, mid_channels=256, reg_full=True):
+    def __init__(self, in_channels, out_size, mid_channels=256, reg_full=True):
         super().__init__()
+        self.out_size = out_size
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.reduce = nn.Conv2d(in_channels, mid_channels, kernel_size=1)
-        self.cls = nn.Conv2d(mid_channels, 1, 1)
-        self.reg = nn.Conv2d(mid_channels, 4 if reg_full else 2, 1)
+        self.cls_conv = nn.Conv2d(mid_channels, 1, 1)
+        self.reg_conv = nn.Conv2d(mid_channels, 4 if reg_full else 2, 1)
+        self.reg_full = reg_full
 
     def forward(self, feat_t, feat_s):
-        # feat_t: (B, C, Ht, Wt) -> global pooled to (B, C, 1, 1)
         tpl = self.avgpool(feat_t)     # (B, C, 1, 1)
         tpl = self.reduce(tpl)         # (B, mid, 1, 1)
         s = self.reduce(feat_s)        # (B, mid, Hs, Ws)
 
-        # cosine between template vector and every spatial location
         tpl_norm = F.normalize(tpl.view(tpl.size(0), tpl.size(1)), dim=1).unsqueeze(-1).unsqueeze(-1)  # (B, mid,1,1)
         s_norm = F.normalize(s, dim=1)  # (B, mid, Hs, Ws)
-        corr = (tpl_norm * s_norm).sum(dim=1)  # (B, Hs, Ws) -- dot over channel dim
+        corr = (tpl_norm * s_norm).sum(dim=1, keepdim=True)  # (B, 1, Hs, Ws) -- dot over channel dim
 
-        cls = self.cls(s)  # (B,1,Hs,Ws)  (you may prefer to feed corr into better head)
-        reg = self.reg(s)
-        cls = cls.squeeze(1)
-        reg = reg.permute(0, 2, 3, 1)
-        return corr, reg
+        # Option A: use corr directly as cls logits, but we also provide small conv head on s
+        cls_logits = self.cls_conv(s)  # (B,1,Hs,Ws)  (alternative: use corr)
+        reg = self.reg_conv(s)         # (B,reg_dim,Hs,Ws)
+
+        # Upsample to out_size
+        cls_logits = F.interpolate(cls_logits, size=(self.out_size, self.out_size), mode="bilinear", align_corners=False)
+        reg = F.interpolate(reg, size=(self.out_size, self.out_size), mode="bilinear", align_corners=False)
+        
+        cls = cls_logits.squeeze(1)           # (B, Out, Out)
+        reg = reg.permute(0, 2, 3, 1)         # (B, Out, Out, reg_dim)
+
+        if self.reg_full:
+            reg_wh = F.softplus(reg[..., 2:4])
+            reg = torch.cat([reg[..., :2], reg_wh], dim=-1)
+        else:
+            reg = F.softplus(reg)
+
+        # optionally return corr (upsampled) too if you want a similarity map:
+        # corr_up = F.interpolate(corr, size=(self.out_size,self.out_size), mode='bilinear', align_corners=False).squeeze(1)
+
+        return cls, reg
     
 # ------------ Putting it together: SiameseTracker with DINO backbone and chosen head ------------
 class SiameseTrackerDino(nn.Module):
-    def __init__(self, dino_model, head_type='depthwise', proj_dim=256, reg_full=True):
+    def __init__(self, dino_model, n_layers_dino, out_size, head_type='depthwise', proj_dim=256, reg_full=True):
         """
         dino_model: pretrained DINO (ViT) object
         head_type: 'depthwise' (recommended) or 'cosine'
         proj_dim: number of channels after projecting DINO features
         """
         super().__init__()
-        self.backbone = DinoBackbone(dino_model, proj_dim=proj_dim)
+        self.backbone = DinoBackbone(dino_model, n_layers = n_layers_dino, proj_dim=proj_dim)
         C = proj_dim
         if head_type == 'depthwise':
-            self.head = DepthwiseXCorrHead(in_channels=C, mid_channels=128, reg_full=reg_full)
+            self.head = DepthwiseXCorrHead(in_channels=C, out_size = out_size, mid_channels=128, reg_full=reg_full)
         elif head_type == 'cosine':
-            self.head = CosineCorrHead(in_channels=C, mid_channels=128, reg_full=reg_full)
+            self.head = CosineCorrHead(in_channels=C, out_size = out_size, mid_channels=128, reg_full=reg_full)
         else:
             raise ValueError("head_type must be 'depthwise' or 'cosine'")
         
@@ -179,7 +185,7 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     template_size= 128
     search_size = 256
-    out_size = 128
+    out_size = 25
     template = torch.randn(32,3,template_size,template_size).to(device)
     search = torch.randn(32,3,search_size,search_size).to(device)
     dinov3_dir = "/home/rafa/deep_learning/projects/siam_tracking/dinov3"
@@ -188,12 +194,8 @@ if __name__ == "__main__":
         model="dinov3_vits16plus",
         source="local"
     )
-    model = SiameseTrackerDino(dino_model).to(device)
-    # print(model)
-    # feat = model(template)
-    # print(feat.shape)
-    # feat2 = model(search)
-    # print(feat2.shape)
+    n_layers_dino = 12
+    model = SiameseTrackerDino(dino_model, n_layers_dino, out_size, head_type='cosine').to(device)
     cls, wh = model(template, search)
     print("Cls shape: ", cls.shape)
     print("wh shape: ", wh.shape)
@@ -201,9 +203,3 @@ if __name__ == "__main__":
     print("Total number of parameters: ", n_params)
     n_params_backbone = sum([p.numel() for p in model.backbone.parameters()])
     print("Number parameters backbone: ", n_params_backbone)
-    n_params_cross_attn = sum([p.numel() for p in model.cross_attn.parameters()])
-    print("Number parameters cross attn: ", n_params_cross_attn)
-    n_params_cls = sum([p.numel() for p in model.cls_head.parameters()])
-    print("Number parameters classification: ", n_params_cls)
-    n_params_reg = sum([p.numel() for p in model.reg_head.parameters()])
-    print("Number parameters regression: ", n_params_reg)
