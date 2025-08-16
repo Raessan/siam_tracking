@@ -36,12 +36,12 @@ class DatasetLaSOT(Dataset):
 
         random.seed(42)
 
-        if self.mode == "train" or self.mode == "val":
+        if self.mode == "train" or self.mode == "val" or self.mode == "trainval":
             file = os.path.join(dir_data, "training_set.txt")
         elif self.mode == "test":
             file = os.path.join(dir_data, "testing_set.txt")
         else:
-            raise Exception("the mode must be either train or test")
+            raise Exception("the mode must be either train, val, trainval or test")
 
         # Get number of videos for the training set
         with open(file, 'r') as file:

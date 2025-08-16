@@ -1,7 +1,7 @@
 # DATASET PARAMETERS
 DIR_DATA = '/home/rafa/deep_learning/datasets/LaSOT' # Root to the folder with the prepared data
-SIZE_TEMPLATE = 127 # Size of the template image
-SIZE_SEARCH = 255 # Size of the search image
+SIZE_TEMPLATE = 128 # Size of the template image
+SIZE_SEARCH = 256 # Size of the search image
 SIZE_OUT = 25 # Size of the labels (heatmap classifier and bbox regressor)
 MAX_FRAME_SEP = 10 # Max number of frames to jump inside a video to get a positive image
 NEG_PROB = 0.3 # Percentage of negative samples
