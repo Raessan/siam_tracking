@@ -141,7 +141,7 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     template_size= 127
     search_size = 255
-    out_size = 127
+    out_size = 25
     template = torch.randn(32,3,template_size,template_size).to(device)
     search = torch.randn(32,3,search_size,search_size).to(device)
     model = SiameseTracker(template_size, search_size, out_size, True).to(device)
