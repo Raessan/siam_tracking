@@ -29,12 +29,7 @@ The configurable variables are in the `config/config.py` file. This should be se
 
 ### Training
 
-With the configured parameters in the `config` file. The `train_tracker.ipynb` can be executed to train the algorithm. The combination that worked best for me was to divide the training into two phases:
-
-1. `LAYERS_FREEZE=4`, `LEARNING_RATE = 0.0001` and trained for 3 epochs.
-2. `LAYERS_FREEZE=3`, `LEARNING_RATE = 0.00001` and trained for 2 epochs from the previous trained model of step 1.
-
-(The rest of parameters are default).
+With the configured parameters in the `config` file. The `train_tracker.ipynb` can be executed to train the algorithm. Since dinov3 already provides good features, I just trained for one epoch using the default configuration.
 
 ### Inference
 
@@ -67,8 +62,7 @@ For negative samples, both the heatmap and the bounding box regressor are set en
 
 #### 1. Siamese Backbone (shared weights):
 
-- A ResNet‑50 truncated at layer3 (output channels = 1024).
-- Extracts deep convolutional features from both template and search inputs.
+- A Dinov3 left untouched (although it is possible to unfreeze some layers).
 
 #### 2. Cross-Attention Module:
 
@@ -116,3 +110,5 @@ total_loss = cls_loss + weight * reg_loss
 - [Bertinetto, L., Valmadre, J., Henriques, J. F., Vedaldi, A., & Torr, P. H. (2016). Fully-convolutional siamese networks for object tracking. *In European conference on computer vision*, (pp. 850-865). Cham: Springer International Publishing](https://arxiv.org/abs/1606.09549)
 
 - [Yu, Y., Xiong, Y., Huang, W., & Scott, M. R. (2020). Deformable siamese attention networks for visual object tracking. *In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition*, (pp. 6728-6737)](https://arxiv.org/abs/2004.06711)
+
+- [Oriane Siméoni, Huy V. Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Michaël Ramamonjisoa, Francisco Massa, Daniel Haziza, Luca Wehrstedt, Jianyuan Wang, Timothée Darcet, Théo Moutakanni, Leonel Sentana, Claire Roberts, Andrea Vedaldi, Jamie Tolan, John Brandt, Camille Couprie, Julien Mairal, Hervé Jégou, Patrick Labatut, Piotr Bojanowski (2025). DINOv3. *arXiv preprint arXiv:2508.10104.*](https://arxiv.org/abs/2508.10104)
