@@ -1,10 +1,11 @@
 import torch
 import cv2
 import numpy as np
-from src.model import SiameseTracker
-from src.utils import get_context_bbox, crop_and_resize, to_tensor, heatmap_center_of_mass
+from src.model import SiameseTrackerDino
+from src.utils import get_context_bbox, crop_and_resize, to_tensor, heatmap_center_of_mass, wh_from_regressor
 import config.config as cfg
 import sys
+import time
 
 # Globals to track ROI
 drawing = False
@@ -31,6 +32,13 @@ def on_mouse(event, x, y, flags, param):
 
 def main(source = 0):
 
+    # Dino model
+    DINOV3_DIR = cfg.DINOV3_DIR
+    DINO_MODEL = cfg.DINO_MODEL
+    PROJ_DIM = cfg.PROJ_DIM
+    MODEL_TO_NUM_LAYERS = cfg.MODEL_TO_NUM_LAYERS
+    MODEL_TO_EMBED_DIM = cfg.MODEL_TO_EMBED_DIM
+
     MODEL_PATH_INFERENCE = cfg.MODEL_PATH_INFERENCE
     EXTRA_CONTENT = cfg.EXTRA_CONTEXT_TEMPLATE
     SIZE_SEARCH = cfg.SIZE_SEARCH
@@ -40,6 +48,8 @@ def main(source = 0):
     IMG_MEAN = np.array(cfg.IMG_MEAN, dtype=np.float32)[None, :, None, None]
     IMG_STD = np.array(cfg.IMG_STD, dtype=np.float32)[None, :, None, None]
     THRESHOLD_CLS = cfg.THRESHOLD_CLS
+    THRESHOLD_CHANGE_TEMPLATE = cfg.THRESHOLD_CHANGE_TEMPLATE
+    MIN_SECONDS_CHANGE_TEMPLATE = cfg.MIN_SECONDS_CHANGE_TEMPLATE
 
     PIXEL_OFFSET_PER_FRAME = cfg.PIXEL_OFFSET_PER_FRAME
 
@@ -48,7 +58,16 @@ def main(source = 0):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Using device: ", device)
 
-    model = SiameseTracker(SIZE_TEMPLATE, SIZE_SEARCH, SIZE_OUT, REG_FULL).to(device)
+    dino_model = torch.hub.load(
+        repo_or_dir=DINOV3_DIR,
+        model="dinov3_vits16plus",
+        source="local"
+    )
+    n_layers_dino = MODEL_TO_NUM_LAYERS[DINO_MODEL]
+    embed_dim = MODEL_TO_EMBED_DIM[DINO_MODEL]
+
+    model = SiameseTrackerDino(dino_model = dino_model, n_layers_dino = n_layers_dino, embed_dim = embed_dim, out_size = SIZE_OUT, 
+                            proj_dim = PROJ_DIM, reg_full = REG_FULL).to(device)
     model.load_state_dict(torch.load(MODEL_PATH_INFERENCE))
     model.eval()
     init_frame = True
@@ -120,14 +139,15 @@ def main(source = 0):
                 display_frame[0:SIZE_TEMPLATE, w_img:w_img+SIZE_TEMPLATE] = template_img.copy()
                 template_tensor = to_tensor(template_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
                 perform_inference = True
+                init_time = time.time()
 
         else: # Get search image and start inference
             search_img, scale_search = crop_and_resize(frame, cx, cy, size, SIZE_SEARCH, 0, 0)
             display_frame[SIZE_TEMPLATE:SIZE_TEMPLATE+SIZE_SEARCH, w_img:w_img+SIZE_SEARCH] = search_img.copy()
             search_tensor = to_tensor(search_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
             # Forward pass
-            pred_heatmap, pred_bbox = model(template_tensor, search_tensor)
-            bbox = pred_bbox[0].detach().cpu().numpy()
+            pred_heatmap, pred_bbox_map = model(template_tensor, search_tensor)
+            bbox_map = pred_bbox_map[0].detach().cpu().numpy()
             heatmap = torch.sigmoid(pred_heatmap[0]).detach().cpu().numpy()
 
             # Step 1: Normalize to [0, 255]
@@ -144,7 +164,8 @@ def main(source = 0):
                 ci, cj = heatmap_center_of_mass(heatmap)
                 cx_search = (cj + 0.5) * stride_search_out
                 cy_search = (ci + 0.5) * stride_search_out
-                w, h = bbox[ci, cj]
+                w, h = wh_from_regressor(heatmap, bbox_map)
+                #w, h = bbox_map[ci, cj]
                 w_search = w*SIZE_SEARCH
                 h_search = h*SIZE_SEARCH
                 x0, y0 = cx_search - w_search/2, cy_search - h_search/2
@@ -159,7 +180,6 @@ def main(source = 0):
                 x1_img = patch_search[0] + x1*scale
                 y0_img = patch_search[1] + y0*scale
                 y1_img = patch_search[1] + y1*scale
-                #cv2.rectangle(display_frame, [int(patch_search[0]), int(patch_search[1])], [int(patch_search[2]), int(patch_search[3])], color=(0, 255, 0), thickness=2)
                 cv2.rectangle(display_frame, [int(x0_img), int(y0_img)], [int(x1_img), int(y1_img)], color=(0, 255, 0), thickness=2)
 
                 desired_cx = patch_search[0] + cx_search*scale
@@ -174,10 +194,11 @@ def main(source = 0):
                 else:
                     cy = max(cy-PIXEL_OFFSET_PER_FRAME, desired_cy)
 
-            # if heatmap.max() > 0.75:
-            #     template_img = cv2.resize(search_img, (SIZE_TEMPLATE, SIZE_TEMPLATE))
-            #     display_frame[0:SIZE_TEMPLATE, w_img:w_img+SIZE_TEMPLATE] = template_img.copy()
-            #     template_tensor = to_tensor(template_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
+            if heatmap.max() > THRESHOLD_CHANGE_TEMPLATE and (time.time() - init_time > MIN_SECONDS_CHANGE_TEMPLATE):
+                template_img = cv2.resize(search_img, (SIZE_TEMPLATE, SIZE_TEMPLATE))
+                display_frame[0:SIZE_TEMPLATE, w_img:w_img+SIZE_TEMPLATE] = template_img.copy()
+                template_tensor = to_tensor(template_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
+                init_time = time.time()
 
 
         cv2.imshow("Stream", display_frame)

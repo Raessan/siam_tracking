@@ -9,7 +9,7 @@ class DinoBackbone(nn.Module):
     Expects `dino_model.get_intermediate_layers(img, n=..., reshape=True, norm=True)` to be available.
     If your DINO API differs, replace `get_intermediate_layers` call accordingly.
     """
-    def __init__(self, dino_model, n_layers = 12, proj_dim=256):
+    def __init__(self, dino_model, n_layers = 12):
         """
         dino_model: pretrained DINO model instance
         layer_idx: which intermediate layer to extract (-1 for last)
@@ -22,7 +22,7 @@ class DinoBackbone(nn.Module):
         # try to get feature dim by a dry run (optional)
         # but we'll leave it dynamic; we'll define a projection conv to proj_dim
         self.proj = None
-        self.proj_dim = proj_dim
+        #self.proj_dim = proj_dim
         # create a small 1x1 conv projection later lazily on first forward (to adapt to C)
 
     def forward(self, x):
@@ -37,61 +37,67 @@ class DinoBackbone(nn.Module):
         feat = feats[-1]  # (B, C, Hf, Wf)
 
         B, C, Hf, Wf = feat.shape
-        if self.proj is None:
-            # lazy init projection to reduce channel dimension for lightweight heads
-            self.proj = nn.Conv2d(C, self.proj_dim, kernel_size=1, bias=True).to(feat.device)
+        # if self.proj is None:
+        #     # lazy init projection to reduce channel dimension for lightweight heads
+        #     self.proj = nn.Conv2d(C, self.proj_dim, kernel_size=1, bias=True).to(feat.device)
 
-        feat = self.proj(feat)  # (B, proj_dim, Hf, Wf)
+        # feat = self.proj(feat)  # (B, proj_dim, Hf, Wf)
         return feat
     
 class CrossAttentionModule(nn.Module):
     def __init__(self, dim, num_heads=8):
         super().__init__()
+        assert dim % num_heads == 0
         self.num_heads = num_heads
-        self.scale = (dim // num_heads) ** -0.5
+        self.head_dim = dim // num_heads
+        self.scale = (self.head_dim) ** -0.5
 
-        # linear projections for template (query) and search (key/value)
         self.q_proj = nn.Conv2d(dim, dim, 1)
         self.k_proj = nn.Conv2d(dim, dim, 1)
         self.v_proj = nn.Conv2d(dim, dim, 1)
         self.out   = nn.Conv2d(dim, dim, 1)
 
     def forward(self, feat_tpl, feat_srch):
-        B, C, H, W = feat_srch.shape
+        # Query = search, Key/Value = template -> update search
+        B, C, Hs, Ws = feat_srch.shape
+        _, _, Ht, Wt = feat_tpl.shape
 
-        # flatten spatial dims
-        q = self.q_proj(feat_tpl).flatten(2)   # (B, C, N1)
-        k = self.k_proj(feat_srch).flatten(2)  # (B, C, N2)
-        v = self.v_proj(feat_srch).flatten(2)  # (B, C, N2)
+        q = self.q_proj(feat_srch).flatten(2)   # (B, C, N_s)
+        k = self.k_proj(feat_tpl).flatten(2)    # (B, C, N_t)
+        v = self.v_proj(feat_tpl).flatten(2)    # (B, C, N_t)
 
-        # reshape for multihead
-        q = q.view(B, self.num_heads, C//self.num_heads, -1)  # (B, h, d, N1)
-        k = k.view(B, self.num_heads, C//self.num_heads, -1)  # (B, h, d, N2)
-        v = v.view(B, self.num_heads, C//self.num_heads, -1)  # (B, h, d, N2)
+        q = q.view(B, self.num_heads, self.head_dim, -1)
+        k = k.view(B, self.num_heads, self.head_dim, -1)
+        v = v.view(B, self.num_heads, self.head_dim, -1)
 
-        attn = (q.transpose(-2,-1) @ k) * self.scale         # (B, h, N1, N2)
+        attn = (q.transpose(-2, -1) @ k) * self.scale   # (B, h, N_s, N_t)
         attn = attn.softmax(dim=-1)
-        out = (attn @ v.transpose(-2,-1))                   # (B, h, N1, d)
-        out = out.transpose(-2,-1).contiguous().view(B, C, -1)  # (B, C, N1)
-        out = out.view(B, C, feat_tpl.shape[-2], feat_tpl.shape[-1])
-        return feat_tpl + self.out(out)  # residual
+
+        out = attn @ v.transpose(-2, -1)  # (B, h, N_s, d)
+        out = out.transpose(-2, -1).contiguous().view(B, C, -1)
+        out = out.view(B, C, Hs, Ws)
+
+        return feat_srch + self.out(out)
     
 # ------------ Putting it together: SiameseTracker with DINO backbone and chosen head ------------
 class SiameseTrackerDino(nn.Module):
-    def __init__(self, dino_model, n_layers_dino, out_size, proj_dim=256, reg_full=True):
+    def __init__(self, dino_model, n_layers_dino, embed_dim, out_size, proj_dim=256, reg_full=True):
         """
         dino_model: pretrained DINO (ViT) object
         head_type: 'depthwise' (recommended) or 'cosine'
         proj_dim: number of channels after projecting DINO features
         """
         super().__init__()
-        self.backbone = DinoBackbone(dino_model, n_layers = n_layers_dino, proj_dim=proj_dim)
+        self.backbone = DinoBackbone(dino_model, n_layers = n_layers_dino)
         C = proj_dim
         self.reg_full = reg_full
         if reg_full:
             reg_dim = 4
         else:
             reg_dim = 2
+
+        # Projection layer
+        self.proj = nn.Conv2d(embed_dim, proj_dim, kernel_size=1, bias=True)
 
         # cross‐attention: template→search
         self.cross_attn = CrossAttentionModule(dim=C, num_heads=8)
@@ -120,19 +126,24 @@ class SiameseTrackerDino(nn.Module):
         
         
     def forward(self, template, search):
+
         # 1) extract features
         f_t = self.backbone(template)  # (B, C, Ht, Wt)
         f_s = self.backbone(search)    # (B, C, Hs, Ws)
 
-        # 2) attend search with template
+        # 2) Project to proj_dim
+        f_t = self.proj(f_t)
+        f_s = self.proj(f_s)
+
+        # 3) attend search with template
         f_s = self.cross_attn(f_t, f_s)
 
-        # 3) fuse / reduce
+        # 4) fuse / reduce
         f_s = self.fuse(f_s)  # (B, C, Hout, Wout)
 
-        # 4) predict
+        # 5) predict
         cls = self.cls_head(f_s)        # (B, 1, Hout, Wout)
-        regs  = self.reg_head(f_s)         # (B, 4, Hout, Wout)
+        regs  = self.reg_head(f_s)         # (B, 2 or 4, Hout, Wout)
 
         # resize to exact out_size if needed
         cls = F.interpolate(cls, size=(self.out_size, self.out_size), mode='bilinear', align_corners=False)
@@ -158,6 +169,39 @@ class SiameseTrackerDino(nn.Module):
 
         return cls, regs
     
+
+# class CrossAttentionModule(nn.Module):
+#     def __init__(self, dim, num_heads=8):
+#         super().__init__()
+#         self.num_heads = num_heads
+#         self.scale = (dim // num_heads) ** -0.5
+
+#         # linear projections for template (query) and search (key/value)
+#         self.q_proj = nn.Conv2d(dim, dim, 1)
+#         self.k_proj = nn.Conv2d(dim, dim, 1)
+#         self.v_proj = nn.Conv2d(dim, dim, 1)
+#         self.out   = nn.Conv2d(dim, dim, 1)
+
+#     def forward(self, feat_tpl, feat_srch):
+#         B, C, H, W = feat_srch.shape
+
+#         # flatten spatial dims
+#         q = self.q_proj(feat_tpl).flatten(2)   # (B, C, N1)
+#         k = self.k_proj(feat_srch).flatten(2)  # (B, C, N2)
+#         v = self.v_proj(feat_srch).flatten(2)  # (B, C, N2)
+
+#         # reshape for multihead
+#         q = q.view(B, self.num_heads, C//self.num_heads, -1)  # (B, h, d, N1)
+#         k = k.view(B, self.num_heads, C//self.num_heads, -1)  # (B, h, d, N2)
+#         v = v.view(B, self.num_heads, C//self.num_heads, -1)  # (B, h, d, N2)
+
+#         attn = (q.transpose(-2,-1) @ k) * self.scale         # (B, h, N1, N2)
+#         attn = attn.softmax(dim=-1)
+#         out = (attn @ v.transpose(-2,-1))                   # (B, h, N1, d)
+#         out = out.transpose(-2,-1).contiguous().view(B, C, -1)  # (B, C, N1)
+#         out = out.view(B, C, feat_tpl.shape[-2], feat_tpl.shape[-1])
+#         return feat_tpl + self.out(out)  # residual
+
 # # ------------ Depthwise cross-correlation head (SiamFC style) ------------
 # class DepthwiseXCorrHead(nn.Module):
 #     def __init__(self, in_channels, out_size, mid_channels=256, reg_full=True):
@@ -311,7 +355,8 @@ if __name__ == "__main__":
         source="local"
     )
     n_layers_dino = 12
-    model = SiameseTrackerDino(dino_model, n_layers_dino, out_size, proj_dim = 512).to(device)
+    embed_dim = 384
+    model = SiameseTrackerDino(dino_model, n_layers_dino, embed_dim, out_size, proj_dim = 512).to(device)
     cls, wh = model(template, search)
     print("Cls shape: ", cls.shape)
     print("wh shape: ", wh.shape)

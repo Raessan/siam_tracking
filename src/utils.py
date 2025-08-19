@@ -76,21 +76,63 @@ def to_tensor(img, mean, std):
         img = (img[None].transpose(0,3,1,2) - mean) / std
         return torch.from_numpy(img[0])
 
-def heatmap_center_of_mass(hm):
+
+def heatmap_center_of_mass(hm, p_mass=0.75):
     """
-    hm:  2D array of shape (H, W)
-    Returns:
-      (i_com, j_com): center of mass in heatmap‐grid coords (floats)
+    Compute center-of-mass restricted to the top region
+    that covers p_mass of the total heatmap probability.
+    hm: 2D array (H,W)
+    p_mass: float in (0,1) = fraction of prob mass to keep
+    Returns (i_com, j_com) in heatmap coords (floats)
     """
     H, W = hm.shape
     total = hm.sum()
-    if total == 0:
-        # no mass → fall back to the exact center of the grid
+    if total <= 0:
         return ( (H-1)/2.0, (W-1)/2.0 )
-    # build index grids
-    i = np.arange(H)[:, None]   # shape (H,1)
-    j = np.arange(W)[None, :]   # shape (1,W)
-    # weighted sum of indices
-    i_com = (i * hm).sum() / total
-    j_com = (j * hm).sum() / total
+    
+    flat = hm.ravel().astype(np.float32)
+    idx_sorted = np.argsort(flat)[::-1]  # descending
+    cumsum = np.cumsum(flat[idx_sorted])
+    cutoff = p_mass * total
+    keep = idx_sorted[: np.searchsorted(cumsum, cutoff) + 1]
+
+    rows, cols = np.unravel_index(keep, hm.shape)
+    weights = flat[keep]
+    weights /= weights.sum()
+
+    i_com = (weights * rows).sum()
+    j_com = (weights * cols).sum()
     return int(i_com), int(j_com)
+
+def wh_from_regressor(hm, bbox_map, k=9):
+    flat_idx = np.argpartition(hm.ravel(), -k)[-k:]   # indices of top-k (unordered)
+    rows, cols = np.unravel_index(flat_idx, hm.shape)
+    weights = hm[rows, cols].astype(np.float32)
+    weights = weights / (weights.sum() + 1e-8)
+    w = (weights * bbox_map[rows, cols, 0]).sum()
+    h = (weights * bbox_map[rows, cols, 1]).sum()
+    return w, h
+
+# def wh_from_regressor(hm, bbox_map, p_mass=0.05):
+#     """
+#     Weighted average of regressed w,h over the region
+#     that covers p_mass of the heatmap probability.
+#     hm: (H,W), bbox_map: (H,W,2)
+#     Returns (w,h) normalized (e.g. relative to search size)
+#     """
+#     total = hm.sum()
+#     if total <= 0:
+#         return bbox_map.mean(axis=(0,1))
+
+#     flat = hm.ravel().astype(np.float32)
+#     idx_sorted = np.argsort(flat)[::-1]
+#     cumsum = np.cumsum(flat[idx_sorted])
+#     cutoff = p_mass * total
+#     keep = idx_sorted[: np.searchsorted(cumsum, cutoff) + 1]
+
+#     rows, cols = np.unravel_index(keep, hm.shape)
+#     weights = flat[keep] / flat[keep].sum()
+
+#     w = (weights * bbox_map[rows, cols, 0]).sum()
+#     h = (weights * bbox_map[rows, cols, 1]).sum()
+#     return w, h

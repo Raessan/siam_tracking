@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import matplotlib.patches as patches
-from src.utils import heatmap_center_of_mass
+from src.utils import heatmap_center_of_mass, wh_from_regressor
 
 
 def draw_samples_training(template, search, heatmap, reg_bbox, gt_heatmap, gt_reg_bbox,
@@ -50,7 +50,29 @@ def draw_samples_training(template, search, heatmap, reg_bbox, gt_heatmap, gt_re
                 ci, cj = heatmap_center_of_mass(hm)
                 cx = (cj + 0.5) * stride
                 cy = (ci + 0.5) * stride
-                w, h = bbox[ci, cj]
+                ##############################################
+                # Method 1 for w, h. The one defined by the center of mass
+                #w, h = bbox[ci, cj]
+                # Method 2 for w, h. The one defined by the max of the heatmap
+                #ci_max, cj_max = np.unravel_index(hm.argmax(), hm.shape)   # or torch.argmax+unravel
+                #w, h = bbox[ci_max, cj_max]
+                # Method 3 for w, h. Weighted average of all the heatmap
+                # p = hm.astype(np.float32)
+                # p_sum = hm.sum()
+                # w_map = bbox[..., 0]
+                # h_map = bbox[..., 1]
+                # w = (p * w_map).sum() / p_sum
+                # h = (p * h_map).sum() / p_sum
+                # Method 4 for w, h. Weighted among top k predictions
+                w, h = wh_from_regressor(hm, bbox)
+                # k = 9
+                # flat_idx = np.argpartition(hm.ravel(), -k)[-k:]   # indices of top-k (unordered)
+                # rows, cols = np.unravel_index(flat_idx, hm.shape)
+                # weights = hm[rows, cols].astype(np.float32)
+                # weights = weights / (weights.sum() + 1e-8)
+                # w = (weights * bbox[rows, cols, 0]).sum()
+                # h = (weights * bbox[rows, cols, 1]).sum()
+                ##############################################3
                 w *= search.shape[2]
                 h *= search.shape[3]
                 x0, y0 = cx - w/2, cy - h/2

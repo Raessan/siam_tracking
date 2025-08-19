@@ -13,7 +13,7 @@ from src.utils import get_context_bbox, crop_and_resize, to_tensor
 class DatasetLaSOT(Dataset):
     def __init__(self, mode, dir_data, size_template, size_search, size_out, max_frame_sep, 
                  neg_prob=0.5, extra_context_template=0.5, min_extra_context_search=0.75, 
-                 max_extra_context_search=1.0, max_shift=0, reg_full=False, img_augment=False,
+                 max_extra_context_search=1.0, max_shift=0, reg_full=False, prob_augment=0.5,
                  mean = [0.485, 0.456, 0.406], std  = [0.229, 0.224, 0.225]):
         self.mode = mode
         self.dir_data = dir_data
@@ -27,7 +27,7 @@ class DatasetLaSOT(Dataset):
         self.max_extra_context_search = max_extra_context_search
         self.max_shift = max_shift
         self.reg_full = reg_full
-        self.img_augment = img_augment
+        self.prob_augment = prob_augment
         # mean/std for ImageNet‐pretrained backbones
         # Adapt these variables to the backbone used
         self.mean = np.array(mean, dtype=np.float32)[None, :, None, None]
@@ -233,6 +233,13 @@ class DatasetLaSOT(Dataset):
         xs, ys = np.meshgrid(coords, coords)  # (H,W)
     
         xmin, ymin, w, h = bbox
+        # Clamp values
+        xmin = np.clip(xmin, 0, self.size_search)
+        ymin = np.clip(ymin, 0, self.size_search)
+        w = np.clip(w, 0, self.size_search-xmin)
+        h = np.clip(h, 0, self.size_search-ymin)
+        
+        # Get centers
         cx = xmin + w/2
         cy = ymin + h/2
     
@@ -397,7 +404,7 @@ class DatasetLaSOT(Dataset):
                 reg_wh = np.zeros((self.size_out, self.size_out, 2), dtype=np.float32)
             heatmap = np.zeros((self.size_out, self.size_out), dtype=np.float32)
 
-        if self.img_augment:
+        if random.random() < self.prob_augment:
             template = self.photometric_augment(template)
             search = self.photometric_augment(search)
         return to_tensor(template, self.mean, self.std), to_tensor(search, self.mean, self.std), heatmap, reg_wh, video_name, video_search_name
