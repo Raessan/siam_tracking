@@ -55,6 +55,10 @@ RESULTS_PATH = '/home/rafa/deep_learning/projects/siam_tracking/results' # Folde
 
 # PARAMETERS FOR INFERENCE
 MODEL_PATH_INFERENCE = '/home/rafa/deep_learning/projects/siam_tracking/results/2025-08-18_23-40-30/model_0.pth' # Path of the model to perform inference
-PIXEL_OFFSET_PER_FRAME = 10 # Maximum number of pixels that the inference algorithm can move between samples
-THRESHOLD_CHANGE_TEMPLATE = 1.0
+PIXEL_OFFSET_PER_FRAME = 20 # Maximum number of pixels that the inference algorithm can move between samples
+PIXEL_SIZE_INCREMENT_WHEN_UNDETECTED = 1 # The number of pixels that we will zoom out when we don't detect the object
+EXTRA_CONTEXT_TEMPLATE_INFERENCE = 0.1
+EXTRA_CONTEXT_SEARCH_INFERENCE = 0.5
+THRESHOLD_CLS_INFERENCE = 0.5
+THRESHOLD_CHANGE_TEMPLATE = 1.0 # If 1.0, it never changes the template
 MIN_SECONDS_CHANGE_TEMPLATE = 2.0

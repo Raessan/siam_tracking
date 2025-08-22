@@ -40,14 +40,15 @@ def main(source = 0):
     MODEL_TO_EMBED_DIM = cfg.MODEL_TO_EMBED_DIM
 
     MODEL_PATH_INFERENCE = cfg.MODEL_PATH_INFERENCE
-    EXTRA_CONTENT = cfg.EXTRA_CONTEXT_TEMPLATE
+    EXTRA_CONTEXT_TEMPLATE = cfg.EXTRA_CONTEXT_TEMPLATE_INFERENCE
+    EXTRA_CONTEXT_SEARCH = cfg.EXTRA_CONTEXT_SEARCH_INFERENCE
     SIZE_SEARCH = cfg.SIZE_SEARCH
     SIZE_TEMPLATE = cfg.SIZE_TEMPLATE
     SIZE_OUT = cfg.SIZE_OUT
     REG_FULL = cfg.REG_FULL
     IMG_MEAN = np.array(cfg.IMG_MEAN, dtype=np.float32)[None, :, None, None]
     IMG_STD = np.array(cfg.IMG_STD, dtype=np.float32)[None, :, None, None]
-    THRESHOLD_CLS = cfg.THRESHOLD_CLS
+    THRESHOLD_CLS = cfg.THRESHOLD_CLS_INFERENCE
     THRESHOLD_CHANGE_TEMPLATE = cfg.THRESHOLD_CHANGE_TEMPLATE
     MIN_SECONDS_CHANGE_TEMPLATE = cfg.MIN_SECONDS_CHANGE_TEMPLATE
 
@@ -134,11 +135,13 @@ def main(source = 0):
                     y1 = p2[1]
                     y2 = p1[1]
                 bbox_template = [x1, y1, x2-x1, y2-y1]
-                cx, cy, size = get_context_bbox(bbox_template, EXTRA_CONTENT)
+                cx, cy, size = get_context_bbox(bbox_template, EXTRA_CONTEXT_TEMPLATE)
                 template_img, scale_template = crop_and_resize(frame, cx, cy, size, SIZE_TEMPLATE, 0, 0)
                 display_frame[0:SIZE_TEMPLATE, w_img:w_img+SIZE_TEMPLATE] = template_img.copy()
                 template_tensor = to_tensor(template_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
                 perform_inference = True
+                # For search
+                _, _, size = get_context_bbox(bbox_template, EXTRA_CONTEXT_SEARCH)
                 init_time = time.time()
 
         else: # Get search image and start inference
@@ -175,7 +178,6 @@ def main(source = 0):
                 patch_search = [cx-size/2.0, cy-size/2.0, cx+size/2.0, cy+size/2.0]
 
                 scale = size/SIZE_SEARCH
-                scale = size/SIZE_SEARCH
                 x0_img = patch_search[0] + x0*scale
                 x1_img = patch_search[0] + x1*scale
                 y0_img = patch_search[1] + y0*scale
@@ -193,9 +195,17 @@ def main(source = 0):
                     cy = min(cy+PIXEL_OFFSET_PER_FRAME, desired_cy)
                 else:
                     cy = max(cy-PIXEL_OFFSET_PER_FRAME, desired_cy)
+                # Update also the size
+                _, _, size = get_context_bbox([x0_img, y0_img, x1_img-x0_img, y1_img-y0_img], EXTRA_CONTEXT_SEARCH)
+
+            else:
+                size+=1
+                size = min(size, max(w_img, h_img))
 
             if heatmap.max() > THRESHOLD_CHANGE_TEMPLATE and (time.time() - init_time > MIN_SECONDS_CHANGE_TEMPLATE):
-                template_img = cv2.resize(search_img, (SIZE_TEMPLATE, SIZE_TEMPLATE))
+                _, _, size_template_box = get_context_bbox([x0_img, y0_img, x1_img-x0_img, y1_img-y0_img], EXTRA_CONTEXT_TEMPLATE)
+                template_img, _ = crop_and_resize(frame, cx, cy, size_template_box, SIZE_TEMPLATE, 0, 0)
+                #template_img = cv2.resize(search_img, (SIZE_TEMPLATE, SIZE_TEMPLATE))
                 display_frame[0:SIZE_TEMPLATE, w_img:w_img+SIZE_TEMPLATE] = template_img.copy()
                 template_tensor = to_tensor(template_img, IMG_MEAN, IMG_STD).to(device, dtype=torch.float).unsqueeze(0)
                 init_time = time.time()
