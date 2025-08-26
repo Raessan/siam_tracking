@@ -35,7 +35,7 @@ def main(source = 0):
     # Dino model
     DINOV3_DIR = cfg.DINOV3_DIR
     DINO_MODEL = cfg.DINO_MODEL
-    DINO_MODEL_PATH = cfg.DINO_MODEL_PATH
+    DINO_MODEL_WEIGHTS = cfg.DINO_MODEL_WEIGHTS
     PROJ_DIM = cfg.PROJ_DIM
     MODEL_TO_NUM_LAYERS = cfg.MODEL_TO_NUM_LAYERS
     MODEL_TO_EMBED_DIM = cfg.MODEL_TO_EMBED_DIM
@@ -63,9 +63,9 @@ def main(source = 0):
 
     dino_model = torch.hub.load(
         repo_or_dir=DINOV3_DIR,
-        model="dinov3_vits16plus",
+        model=DINO_MODEL,
         source="local",
-        weights=DINO_MODEL_PATH
+        weights=DINO_MODEL_WEIGHTS
     )
     n_layers_dino = MODEL_TO_NUM_LAYERS[DINO_MODEL]
     embed_dim = MODEL_TO_EMBED_DIM[DINO_MODEL]
