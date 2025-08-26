@@ -35,6 +35,7 @@ def main(source = 0):
     # Dino model
     DINOV3_DIR = cfg.DINOV3_DIR
     DINO_MODEL = cfg.DINO_MODEL
+    DINO_MODEL_PATH = cfg.DINO_MODEL_PATH
     PROJ_DIM = cfg.PROJ_DIM
     MODEL_TO_NUM_LAYERS = cfg.MODEL_TO_NUM_LAYERS
     MODEL_TO_EMBED_DIM = cfg.MODEL_TO_EMBED_DIM
@@ -53,6 +54,7 @@ def main(source = 0):
     MIN_SECONDS_CHANGE_TEMPLATE = cfg.MIN_SECONDS_CHANGE_TEMPLATE
 
     PIXEL_OFFSET_PER_FRAME = cfg.PIXEL_OFFSET_PER_FRAME
+    PIXEL_SIZE_INCREMENT_WHEN_UNDETECTED = cfg.PIXEL_SIZE_INCREMENT_WHEN_UNDETECTED
 
     global perform_inference, roi_defined, p1, p2
 
@@ -62,7 +64,8 @@ def main(source = 0):
     dino_model = torch.hub.load(
         repo_or_dir=DINOV3_DIR,
         model="dinov3_vits16plus",
-        source="local"
+        source="local",
+        weights=DINO_MODEL_PATH
     )
     n_layers_dino = MODEL_TO_NUM_LAYERS[DINO_MODEL]
     embed_dim = MODEL_TO_EMBED_DIM[DINO_MODEL]
@@ -199,7 +202,7 @@ def main(source = 0):
                 _, _, size = get_context_bbox([x0_img, y0_img, x1_img-x0_img, y1_img-y0_img], EXTRA_CONTEXT_SEARCH)
 
             else:
-                size+=1
+                size+=PIXEL_SIZE_INCREMENT_WHEN_UNDETECTED
                 size = min(size, max(w_img, h_img))
 
             if heatmap.max() > THRESHOLD_CHANGE_TEMPLATE and (time.time() - init_time > MIN_SECONDS_CHANGE_TEMPLATE):

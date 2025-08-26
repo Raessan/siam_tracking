@@ -16,8 +16,9 @@ IMG_MEAN = [0.485, 0.456, 0.406] # Mean of the image that the backbone (e.g. Res
 IMG_STD = [0.229, 0.224, 0.225] # Std of the image that the backbone (e.g. ResNet) expects
     
 # MODEL PARAMETERS
-DINOV3_DIR = "/home/rafa/deep_learning/projects/siam_tracking/dinov3"
+DINOV3_DIR = "/home/rafael/projects/siam_tracking/dinov3"
 DINO_MODEL = "dinov3_vits16plus"
+DINO_MODEL_PATH = "/home/rafael/projects/siam_tracking/results/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth"
 PROJ_DIM = 512
 BATCH_SIZE = 32 # Batch size
 MODEL_TO_NUM_LAYERS = {
@@ -50,11 +51,11 @@ NUM_SAMPLES_PLOT = 6 # Number of samples to plot during training or validation
 
 LOAD_MODEL = False # Whether to load an existing model for training
 SAVE_MODEL = True # Whether to save the result from the training
-MODEL_PATH_TRAIN_LOAD = '/home/rafa/deep_learning/projects/siam_tracking/results/2025-08-18_23-40-30/model_0.pth' # Path of the model to load
-RESULTS_PATH = '/home/rafa/deep_learning/projects/siam_tracking/results' # Folder where the result will be saved
+MODEL_PATH_TRAIN_LOAD = '/home/rafael/projects/siam_tracking/results/2025-08-18_23-40-30/model_0.pth' # Path of the model to load
+RESULTS_PATH = '/home/rafael/projects/siam_tracking/results' # Folder where the result will be saved
 
 # PARAMETERS FOR INFERENCE
-MODEL_PATH_INFERENCE = '/home/rafa/deep_learning/projects/siam_tracking/results/2025-08-18_23-40-30/model_0.pth' # Path of the model to perform inference
+MODEL_PATH_INFERENCE = '/home/rafael/projects/siam_tracking/results/2025-08-18_23-40-30/model_0.pth' # Path of the model to perform inference
 PIXEL_OFFSET_PER_FRAME = 20 # Maximum number of pixels that the inference algorithm can move between samples
 PIXEL_SIZE_INCREMENT_WHEN_UNDETECTED = 1 # The number of pixels that we will zoom out when we don't detect the object
 EXTRA_CONTEXT_TEMPLATE_INFERENCE = 0.1
